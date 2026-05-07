@@ -88,7 +88,7 @@ class ExecuteCommandPlus {
             icon: 'fa:terminal',
             iconColor: 'blue',
             group: ['transform'],
-            version: 7,
+            version: 8,
             description: 'Execute shell command with forgiving error handling for AI agents',
             defaults: {
                 name: 'Execute Command Plus',
@@ -228,6 +228,13 @@ class ExecuteCommandPlus {
                         },
                     ],
                 },
+                {
+                    displayName: 'AI Agent Output',
+                    name: 'aiOutput',
+                    type: 'boolean',
+                    default: false,
+                    description: 'When ON: output entire result as single JSON string (optimized for AI agents)',
+                },
             ],
         };
     }
@@ -237,6 +244,7 @@ class ExecuteCommandPlus {
         const executeOnce = this.getNodeParameter('executeOnce', 0);
         const forgiving = this.getNodeParameter('forgiving', 0);
         const delay = this.getNodeParameter('delay', 0) || 0;
+        const aiOutput = this.getNodeParameter('aiOutput', 0);
         
         if (executeOnce) {
             items = [items[0] || { json: {} }];
@@ -278,9 +286,17 @@ class ExecuteCommandPlus {
 
             try {
                 if (!command || command.trim() === '') {
-                    if (includeSuccess) result.json.success = false;
-                    if (includeError) result.json.error = 'Command is empty';
-                    if (includeExitCode) result.json.exitCode = 1;
+                    if (aiOutput) {
+                        result.json.output = JSON.stringify({
+                            success: false,
+                            error: 'Command is empty',
+                            exitCode: 1
+                        });
+                    } else {
+                        if (includeSuccess) result.json.success = false;
+                        if (includeError) result.json.error = 'Command is empty';
+                        if (includeExitCode) result.json.exitCode = 1;
+                    }
                     
                     if (!forgiving) {
                         throw new Error('Command is empty');
@@ -291,19 +307,37 @@ class ExecuteCommandPlus {
 
                 const { error, exitCode, stdout, stderr } = await execPromise(command, options);
                 
-                if (includeSuccess) result.json.success = !error;
-                if (includeExitCode) result.json.exitCode = exitCode || 0;
-                if (includeStdout) result.json.stdout = stdout || '';
-                if (includeStderr) result.json.stderr = stderr || '';
-                if (includeError) result.json.error = error ? (error.message || 'Command failed') : '';
+                if (aiOutput) {
+                    const output = {};
+                    output.success = !error;
+                    output.exitCode = exitCode || 0;
+                    if (includeStdout) output.stdout = stdout || '';
+                    if (includeStderr) output.stderr = stderr || '';
+                    if (includeError) output.error = error ? (error.message || 'Command failed') : '';
+                    result.json.output = JSON.stringify(output);
+                } else {
+                    if (includeSuccess) result.json.success = !error;
+                    if (includeExitCode) result.json.exitCode = exitCode || 0;
+                    if (includeStdout) result.json.stdout = stdout || '';
+                    if (includeStderr) result.json.stderr = stderr || '';
+                    if (includeError) result.json.error = error ? (error.message || 'Command failed') : '';
+                }
 
                 if (error && !forgiving) {
                     throw error;
                 }
             } catch (err) {
-                if (includeSuccess) result.json.success = false;
-                if (includeError) result.json.error = err.message || 'Command execution failed';
-                if (includeExitCode) result.json.exitCode = 1;
+                if (aiOutput) {
+                    result.json.output = JSON.stringify({
+                        success: false,
+                        error: err.message || 'Command execution failed',
+                        exitCode: 1
+                    });
+                } else {
+                    if (includeSuccess) result.json.success = false;
+                    if (includeError) result.json.error = err.message || 'Command execution failed';
+                    if (includeExitCode) result.json.exitCode = 1;
+                }
                 
                 if (!forgiving) {
                     throw err;
