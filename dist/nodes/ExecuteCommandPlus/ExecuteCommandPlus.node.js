@@ -41,16 +41,6 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function simpleHash(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return Math.abs(hash).toString(16).padStart(8, '0');
-}
-
 async function execPromise(command, options) {
     const returnData = {
         error: undefined,
@@ -90,24 +80,23 @@ async function execPromise(command, options) {
     });
 }
 
-function formatAIOutput(data, includeSettings) {
-    const output = {
-        cmd_success: data.success,
-        cmd_exit: data.exitCode,
-        cmd_stdout: includeSettings.includeStdout ? data.stdout : undefined,
-        cmd_stderr: includeSettings.includeStderr ? data.stderr : undefined,
-        cmd_error: includeSettings.includeError && data.error ? data.error : undefined
-    };
+function formatMinimalAIOutput(data) {
+    const output = [];
     
-    // Remove undefined values
-    Object.keys(output).forEach(key => {
-        if (output[key] === undefined) delete output[key];
-    });
+    output.push(data.success ? 'OK' : 'ERR');
+    output.push(String(data.exitCode));
     
-    const jsonStr = JSON.stringify(output);
-    const hash = simpleHash(jsonStr);
+    if (data.stdout) {
+        output.push(data.stdout);
+    }
+    if (data.stderr) {
+        output.push('ERR: ' + data.stderr);
+    }
+    if (data.error) {
+        output.push('ERR: ' + data.error);
+    }
     
-    return `=== CMD OUTPUT START ===\n${jsonStr}\n=== CMD OUTPUT END [${hash}] ===`;
+    return output.join(' | ');
 }
 
 class ExecuteCommandPlus {
@@ -118,7 +107,7 @@ class ExecuteCommandPlus {
             icon: 'fa:terminal',
             iconColor: 'blue',
             group: ['transform'],
-            version: 9,
+            version: 10,
             description: 'Execute shell command with forgiving error handling for AI agents',
             defaults: {
                 name: 'Execute Command Plus',
@@ -216,54 +205,11 @@ class ExecuteCommandPlus {
                     description: 'Signal to send when killing the process on timeout',
                 },
                 {
-                    displayName: 'Output Settings',
-                    name: 'outputSettings',
-                    type: 'collection',
-                    placeholder: 'Add Output Toggle',
-                    options: [
-                        {
-                            displayName: 'Include stdout',
-                            name: 'includeStdout',
-                            type: 'boolean',
-                            default: true,
-                            description: 'Include stdout in output',
-                        },
-                        {
-                            displayName: 'Include stderr',
-                            name: 'includeStderr',
-                            type: 'boolean',
-                            default: true,
-                            description: 'Include stderr in output',
-                        },
-                        {
-                            displayName: 'Include exitCode',
-                            name: 'includeExitCode',
-                            type: 'boolean',
-                            default: true,
-                            description: 'Include exit code in output',
-                        },
-                        {
-                            displayName: 'Include error',
-                            name: 'includeError',
-                            type: 'boolean',
-                            default: true,
-                            description: 'Include error message in output',
-                        },
-                        {
-                            displayName: 'Include success',
-                            name: 'includeSuccess',
-                            type: 'boolean',
-                            default: true,
-                            description: 'Include success flag in output',
-                        },
-                    ],
-                },
-                {
                     displayName: 'AI Agent Output',
                     name: 'aiOutput',
                     type: 'boolean',
-                    default: false,
-                    description: 'When ON: format output with wrapper tags and prefixed keys to prevent LLM confusion (=== CMD OUTPUT START/END ===)',
+                    default: true,
+                    description: 'When ON: minimal output format optimized for AI (OK|0|output | ERR:message). When OFF: detailed JSON.',
                 },
             ],
         };
@@ -288,13 +234,6 @@ class ExecuteCommandPlus {
         const shell = this.getNodeParameter('shell', 0) || '/bin/bash';
         const maxBuffer = this.getNodeParameter('maxBuffer', 0) || 1024;
         const killSignal = this.getNodeParameter('killSignal', 0) || 'SIGTERM';
-        const outputSettings = this.getNodeParameter('outputSettings', 0) || {};
-
-        const includeStdout = outputSettings.includeStdout !== false;
-        const includeStderr = outputSettings.includeStderr !== false;
-        const includeExitCode = outputSettings.includeExitCode !== false;
-        const includeError = outputSettings.includeError !== false;
-        const includeSuccess = outputSettings.includeSuccess !== false;
 
         const options = {
             encoding,
@@ -306,10 +245,7 @@ class ExecuteCommandPlus {
             env: {}
         };
 
-        const includeConfig = { includeStdout, includeStderr, includeExitCode, includeError, includeSuccess };
-
         for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
-            // Apply minimum delay before execution
             if (delay > 0) {
                 await sleep(delay);
             }
@@ -319,17 +255,11 @@ class ExecuteCommandPlus {
             try {
                 if (!command || command.trim() === '') {
                     if (aiOutput) {
-                        result.json.output = formatAIOutput({
-                            success: false,
-                            exitCode: 1,
-                            stdout: '',
-                            stderr: '',
-                            error: 'Command is empty'
-                        }, includeConfig);
+                        result.json.output = 'ERR | 1 | Command is empty';
                     } else {
-                        if (includeSuccess) result.json.success = false;
-                        if (includeError) result.json.error = 'Command is empty';
-                        if (includeExitCode) result.json.exitCode = 1;
+                        result.json.success = false;
+                        result.json.error = 'Command is empty';
+                        result.json.exitCode = 1;
                     }
                     
                     if (!forgiving) {
@@ -342,19 +272,19 @@ class ExecuteCommandPlus {
                 const { error, exitCode, stdout, stderr } = await execPromise(command, options);
                 
                 if (aiOutput) {
-                    result.json.output = formatAIOutput({
+                    result.json.output = formatMinimalAIOutput({
                         success: !error,
                         exitCode: exitCode || 0,
                         stdout: stdout || '',
                         stderr: stderr || '',
                         error: error ? (error.message || 'Command failed') : ''
-                    }, includeConfig);
+                    });
                 } else {
-                    if (includeSuccess) result.json.success = !error;
-                    if (includeExitCode) result.json.exitCode = exitCode || 0;
-                    if (includeStdout) result.json.stdout = stdout || '';
-                    if (includeStderr) result.json.stderr = stderr || '';
-                    if (includeError) result.json.error = error ? (error.message || 'Command failed') : '';
+                    result.json.success = !error;
+                    result.json.exitCode = exitCode || 0;
+                    result.json.stdout = stdout || '';
+                    result.json.stderr = stderr || '';
+                    result.json.error = error ? (error.message || 'Command failed') : '';
                 }
 
                 if (error && !forgiving) {
@@ -362,17 +292,11 @@ class ExecuteCommandPlus {
                 }
             } catch (err) {
                 if (aiOutput) {
-                    result.json.output = formatAIOutput({
-                        success: false,
-                        exitCode: 1,
-                        stdout: '',
-                        stderr: '',
-                        error: err.message || 'Command execution failed'
-                    }, includeConfig);
+                    result.json.output = 'ERR | 1 | ' + (err.message || 'Command execution failed');
                 } else {
-                    if (includeSuccess) result.json.success = false;
-                    if (includeError) result.json.error = err.message || 'Command execution failed';
-                    if (includeExitCode) result.json.exitCode = 1;
+                    result.json.success = false;
+                    result.json.error = err.message || 'Command execution failed';
+                    result.json.exitCode = 1;
                 }
                 
                 if (!forgiving) {
