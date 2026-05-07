@@ -88,7 +88,7 @@ class ExecuteCommandPlus {
             icon: 'fa:terminal',
             iconColor: 'blue',
             group: ['transform'],
-            version: 6,
+            version: 7,
             description: 'Execute shell command with forgiving error handling for AI agents',
             defaults: {
                 name: 'Execute Command Plus',
@@ -185,6 +185,49 @@ class ExecuteCommandPlus {
                     default: 'SIGTERM',
                     description: 'Signal to send when killing the process on timeout',
                 },
+                {
+                    displayName: 'Output Settings',
+                    name: 'outputSettings',
+                    type: 'collection',
+                    placeholder: 'Add Output Toggle',
+                    options: [
+                        {
+                            displayName: 'Include stdout',
+                            name: 'includeStdout',
+                            type: 'boolean',
+                            default: true,
+                            description: 'Include stdout in output',
+                        },
+                        {
+                            displayName: 'Include stderr',
+                            name: 'includeStderr',
+                            type: 'boolean',
+                            default: true,
+                            description: 'Include stderr in output',
+                        },
+                        {
+                            displayName: 'Include exitCode',
+                            name: 'includeExitCode',
+                            type: 'boolean',
+                            default: true,
+                            description: 'Include exit code in output',
+                        },
+                        {
+                            displayName: 'Include error',
+                            name: 'includeError',
+                            type: 'boolean',
+                            default: true,
+                            description: 'Include error message in output',
+                        },
+                        {
+                            displayName: 'Include success',
+                            name: 'includeSuccess',
+                            type: 'boolean',
+                            default: true,
+                            description: 'Include success flag in output',
+                        },
+                    ],
+                },
             ],
         };
     }
@@ -207,6 +250,13 @@ class ExecuteCommandPlus {
         const shell = this.getNodeParameter('shell', 0) || '/bin/bash';
         const maxBuffer = this.getNodeParameter('maxBuffer', 0) || 1024;
         const killSignal = this.getNodeParameter('killSignal', 0) || 'SIGTERM';
+        const outputSettings = this.getNodeParameter('outputSettings', 0) || {};
+
+        const includeStdout = outputSettings.includeStdout !== false;
+        const includeStderr = outputSettings.includeStderr !== false;
+        const includeExitCode = outputSettings.includeExitCode !== false;
+        const includeError = outputSettings.includeError !== false;
+        const includeSuccess = outputSettings.includeSuccess !== false;
 
         const options = {
             encoding,
@@ -224,22 +274,13 @@ class ExecuteCommandPlus {
                 await sleep(delay);
             }
 
-            const result = {
-                json: {
-                    success: true,
-                    error: '',
-                    exitCode: 0,
-                    stderr: '',
-                    stdout: '',
-                },
-                pairedItem: { item: itemIndex },
-            };
+            const result = { json: {}, pairedItem: { item: itemIndex } };
 
             try {
                 if (!command || command.trim() === '') {
-                    result.json.success = false;
-                    result.json.error = 'Command is empty';
-                    result.json.exitCode = 1;
+                    if (includeSuccess) result.json.success = false;
+                    if (includeError) result.json.error = 'Command is empty';
+                    if (includeExitCode) result.json.exitCode = 1;
                     
                     if (!forgiving) {
                         throw new Error('Command is empty');
@@ -250,22 +291,19 @@ class ExecuteCommandPlus {
 
                 const { error, exitCode, stdout, stderr } = await execPromise(command, options);
                 
-                result.json.exitCode = exitCode || 0;
-                result.json.stdout = stdout || '';
-                result.json.stderr = stderr || '';
+                if (includeSuccess) result.json.success = !error;
+                if (includeExitCode) result.json.exitCode = exitCode || 0;
+                if (includeStdout) result.json.stdout = stdout || '';
+                if (includeStderr) result.json.stderr = stderr || '';
+                if (includeError) result.json.error = error ? (error.message || 'Command failed') : '';
 
-                if (error) {
-                    result.json.success = false;
-                    result.json.error = error.message || 'Command failed';
-                    
-                    if (!forgiving) {
-                        throw error;
-                    }
+                if (error && !forgiving) {
+                    throw error;
                 }
             } catch (err) {
-                result.json.success = false;
-                result.json.error = err.message || 'Command execution failed';
-                result.json.exitCode = 1;
+                if (includeSuccess) result.json.success = false;
+                if (includeError) result.json.error = err.message || 'Command execution failed';
+                if (includeExitCode) result.json.exitCode = 1;
                 
                 if (!forgiving) {
                     throw err;
