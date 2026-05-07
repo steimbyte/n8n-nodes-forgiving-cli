@@ -80,25 +80,6 @@ async function execPromise(command, options) {
     });
 }
 
-function formatMinimalAIOutput(data) {
-    const output = [];
-    
-    output.push(data.success ? 'OK' : 'ERR');
-    output.push(String(data.exitCode));
-    
-    if (data.stdout) {
-        output.push(data.stdout);
-    }
-    if (data.stderr) {
-        output.push('ERR: ' + data.stderr);
-    }
-    if (data.error) {
-        output.push('ERR: ' + data.error);
-    }
-    
-    return output.join(' | ');
-}
-
 class ExecuteCommandPlus {
     constructor() {
         this.description = {
@@ -107,7 +88,7 @@ class ExecuteCommandPlus {
             icon: 'fa:terminal',
             iconColor: 'blue',
             group: ['transform'],
-            version: 10,
+            version: 11,
             description: 'Execute shell command with forgiving error handling for AI agents',
             defaults: {
                 name: 'Execute Command Plus',
@@ -205,11 +186,16 @@ class ExecuteCommandPlus {
                     description: 'Signal to send when killing the process on timeout',
                 },
                 {
-                    displayName: 'AI Agent Output',
-                    name: 'aiOutput',
-                    type: 'boolean',
-                    default: true,
-                    description: 'When ON: minimal output format optimized for AI (OK|0|output | ERR:message). When OFF: detailed JSON.',
+                    displayName: 'Output Mode',
+                    name: 'outputMode',
+                    type: 'options',
+                    options: [
+                        { name: 'AI Minimal (default)', value: 'ai' },
+                        { name: 'stdout only', value: 'stdout' },
+                        { name: 'JSON (detailed)', value: 'json' },
+                    ],
+                    default: 'ai',
+                    description: 'Output format',
                 },
             ],
         };
@@ -220,7 +206,7 @@ class ExecuteCommandPlus {
         const executeOnce = this.getNodeParameter('executeOnce', 0);
         const forgiving = this.getNodeParameter('forgiving', 0);
         const delay = this.getNodeParameter('delay', 0) || 0;
-        const aiOutput = this.getNodeParameter('aiOutput', 0);
+        const outputMode = this.getNodeParameter('outputMode', 0);
         
         if (executeOnce) {
             items = [items[0] || { json: {} }];
@@ -254,7 +240,9 @@ class ExecuteCommandPlus {
 
             try {
                 if (!command || command.trim() === '') {
-                    if (aiOutput) {
+                    if (outputMode === 'stdout') {
+                        result.json.output = '';
+                    } else if (outputMode === 'ai') {
                         result.json.output = 'ERR | 1 | Command is empty';
                     } else {
                         result.json.success = false;
@@ -271,14 +259,13 @@ class ExecuteCommandPlus {
 
                 const { error, exitCode, stdout, stderr } = await execPromise(command, options);
                 
-                if (aiOutput) {
-                    result.json.output = formatMinimalAIOutput({
-                        success: !error,
-                        exitCode: exitCode || 0,
-                        stdout: stdout || '',
-                        stderr: stderr || '',
-                        error: error ? (error.message || 'Command failed') : ''
-                    });
+                if (outputMode === 'stdout') {
+                    result.json.output = stdout || '';
+                } else if (outputMode === 'ai') {
+                    let output = !error ? 'OK | ' + (exitCode || 0) : 'ERR | ' + (exitCode || 1);
+                    if (stdout) output += ' | ' + stdout;
+                    if (error) output += ' | ' + (error.message || 'Command failed');
+                    result.json.output = output;
                 } else {
                     result.json.success = !error;
                     result.json.exitCode = exitCode || 0;
@@ -291,7 +278,9 @@ class ExecuteCommandPlus {
                     throw error;
                 }
             } catch (err) {
-                if (aiOutput) {
+                if (outputMode === 'stdout') {
+                    result.json.output = '';
+                } else if (outputMode === 'ai') {
                     result.json.output = 'ERR | 1 | ' + (err.message || 'Command execution failed');
                 } else {
                     result.json.success = false;
