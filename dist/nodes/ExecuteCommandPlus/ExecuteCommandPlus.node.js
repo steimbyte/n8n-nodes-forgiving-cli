@@ -41,6 +41,16 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16).padStart(8, '0');
+}
+
 async function execPromise(command, options) {
     const returnData = {
         error: undefined,
@@ -80,6 +90,26 @@ async function execPromise(command, options) {
     });
 }
 
+function formatAIOutput(data, includeSettings) {
+    const output = {
+        cmd_success: data.success,
+        cmd_exit: data.exitCode,
+        cmd_stdout: includeSettings.includeStdout ? data.stdout : undefined,
+        cmd_stderr: includeSettings.includeStderr ? data.stderr : undefined,
+        cmd_error: includeSettings.includeError && data.error ? data.error : undefined
+    };
+    
+    // Remove undefined values
+    Object.keys(output).forEach(key => {
+        if (output[key] === undefined) delete output[key];
+    });
+    
+    const jsonStr = JSON.stringify(output);
+    const hash = simpleHash(jsonStr);
+    
+    return `=== CMD OUTPUT START ===\n${jsonStr}\n=== CMD OUTPUT END [${hash}] ===`;
+}
+
 class ExecuteCommandPlus {
     constructor() {
         this.description = {
@@ -88,7 +118,7 @@ class ExecuteCommandPlus {
             icon: 'fa:terminal',
             iconColor: 'blue',
             group: ['transform'],
-            version: 8,
+            version: 9,
             description: 'Execute shell command with forgiving error handling for AI agents',
             defaults: {
                 name: 'Execute Command Plus',
@@ -233,7 +263,7 @@ class ExecuteCommandPlus {
                     name: 'aiOutput',
                     type: 'boolean',
                     default: false,
-                    description: 'When ON: output entire result as single JSON string (optimized for AI agents)',
+                    description: 'When ON: format output with wrapper tags and prefixed keys to prevent LLM confusion (=== CMD OUTPUT START/END ===)',
                 },
             ],
         };
@@ -276,6 +306,8 @@ class ExecuteCommandPlus {
             env: {}
         };
 
+        const includeConfig = { includeStdout, includeStderr, includeExitCode, includeError, includeSuccess };
+
         for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
             // Apply minimum delay before execution
             if (delay > 0) {
@@ -287,11 +319,13 @@ class ExecuteCommandPlus {
             try {
                 if (!command || command.trim() === '') {
                     if (aiOutput) {
-                        result.json.output = JSON.stringify({
+                        result.json.output = formatAIOutput({
                             success: false,
-                            error: 'Command is empty',
-                            exitCode: 1
-                        });
+                            exitCode: 1,
+                            stdout: '',
+                            stderr: '',
+                            error: 'Command is empty'
+                        }, includeConfig);
                     } else {
                         if (includeSuccess) result.json.success = false;
                         if (includeError) result.json.error = 'Command is empty';
@@ -308,13 +342,13 @@ class ExecuteCommandPlus {
                 const { error, exitCode, stdout, stderr } = await execPromise(command, options);
                 
                 if (aiOutput) {
-                    const output = {};
-                    output.success = !error;
-                    output.exitCode = exitCode || 0;
-                    if (includeStdout) output.stdout = stdout || '';
-                    if (includeStderr) output.stderr = stderr || '';
-                    if (includeError) output.error = error ? (error.message || 'Command failed') : '';
-                    result.json.output = JSON.stringify(output);
+                    result.json.output = formatAIOutput({
+                        success: !error,
+                        exitCode: exitCode || 0,
+                        stdout: stdout || '',
+                        stderr: stderr || '',
+                        error: error ? (error.message || 'Command failed') : ''
+                    }, includeConfig);
                 } else {
                     if (includeSuccess) result.json.success = !error;
                     if (includeExitCode) result.json.exitCode = exitCode || 0;
@@ -328,11 +362,13 @@ class ExecuteCommandPlus {
                 }
             } catch (err) {
                 if (aiOutput) {
-                    result.json.output = JSON.stringify({
+                    result.json.output = formatAIOutput({
                         success: false,
-                        error: err.message || 'Command execution failed',
-                        exitCode: 1
-                    });
+                        exitCode: 1,
+                        stdout: '',
+                        stderr: '',
+                        error: err.message || 'Command execution failed'
+                    }, includeConfig);
                 } else {
                     if (includeSuccess) result.json.success = false;
                     if (includeError) result.json.error = err.message || 'Command execution failed';
