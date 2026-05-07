@@ -1,0 +1,30 @@
+{
+  "name": "n8n-nodes-forgiving-cli",
+  "version": "1.3.0",
+  "description": "Enhanced Execute Command node with forgiving error handling for AI agents",
+  "keywords": ["n8n-community-node-package"],
+  "license": "MIT",
+  "author": {
+    "name": "steimerbyte",
+    "email": "alephtex@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steimbyte/n8n-nodes-forgiving-cli.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "main": "index.js",
+  "files": ["dist", "index.js"],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "nodes": ["dist/nodes/ExecuteCommandPlus/ExecuteCommandPlus.node.js"]
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.6.3"
+  }
+}
