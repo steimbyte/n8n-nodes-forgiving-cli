@@ -37,6 +37,10 @@ exports.ExecuteCommandPlus = void 0;
 const child_process_1 = require("child_process");
 const iconv = __importStar(require("iconv-lite"));
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function execPromise(command, options) {
     const returnData = {
         error: undefined,
@@ -84,7 +88,7 @@ class ExecuteCommandPlus {
             icon: 'fa:terminal',
             iconColor: 'blue',
             group: ['transform'],
-            version: 5,
+            version: 6,
             description: 'Execute shell command with forgiving error handling for AI agents',
             defaults: {
                 name: 'Execute Command Plus',
@@ -107,6 +111,13 @@ class ExecuteCommandPlus {
                     type: 'boolean',
                     default: true,
                     description: 'When ON: commands with errors still count as success (workflow continues). When OFF: errors stop the workflow.',
+                },
+                {
+                    displayName: 'Minimum Delay (ms)',
+                    name: 'delay',
+                    type: 'number',
+                    default: 0,
+                    description: 'Minimum delay in milliseconds before executing the command',
                 },
                 {
                     displayName: 'Encoding',
@@ -182,6 +193,7 @@ class ExecuteCommandPlus {
         let items = this.getInputData();
         const executeOnce = this.getNodeParameter('executeOnce', 0);
         const forgiving = this.getNodeParameter('forgiving', 0);
+        const delay = this.getNodeParameter('delay', 0) || 0;
         
         if (executeOnce) {
             items = [items[0] || { json: {} }];
@@ -207,6 +219,11 @@ class ExecuteCommandPlus {
         };
 
         for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+            // Apply minimum delay before execution
+            if (delay > 0) {
+                await sleep(delay);
+            }
+
             const result = {
                 json: {
                     success: true,

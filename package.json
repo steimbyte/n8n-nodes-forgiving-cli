@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-forgiving-cli",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Enhanced Execute Command node with forgiving error handling for AI agents",
   "keywords": ["n8n-community-node-package"],
   "license": "MIT",
