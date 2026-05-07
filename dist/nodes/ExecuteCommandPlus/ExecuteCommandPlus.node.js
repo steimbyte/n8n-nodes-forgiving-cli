@@ -237,18 +237,20 @@ class ExecuteCommandPlus {
             }
 
             const result = { json: {}, pairedItem: { item: itemIndex } };
+            let hasOutput = false;
 
             try {
                 if (!command || command.trim() === '') {
                     if (outputMode === 'stdout') {
-                        result.json.output = '';
+                        result.json.output = '(empty command)';
                     } else if (outputMode === 'ai') {
-                        result.json.output = 'ERR | 1 | Command is empty';
+                        result.json.output = 'ERR | 1 | empty command';
                     } else {
                         result.json.success = false;
                         result.json.error = 'Command is empty';
                         result.json.exitCode = 1;
                     }
+                    hasOutput = true;
                     
                     if (!forgiving) {
                         throw new Error('Command is empty');
@@ -260,11 +262,16 @@ class ExecuteCommandPlus {
                 const { error, exitCode, stdout, stderr } = await execPromise(command, options);
                 
                 if (outputMode === 'stdout') {
-                    result.json.output = stdout || '';
+                    result.json.output = stdout || '(no output)';
                 } else if (outputMode === 'ai') {
                     let output = !error ? 'OK | ' + (exitCode || 0) : 'ERR | ' + (exitCode || 1);
-                    if (stdout) output += ' | ' + stdout;
-                    if (error) output += ' | ' + (error.message || 'Command failed');
+                    if (stdout) {
+                        output += ' | ' + stdout;
+                        hasOutput = true;
+                    }
+                    if (error) {
+                        output += ' | ' + (error.message || 'Command failed');
+                    }
                     result.json.output = output;
                 } else {
                     result.json.success = !error;
@@ -272,6 +279,7 @@ class ExecuteCommandPlus {
                     result.json.stdout = stdout || '';
                     result.json.stderr = stderr || '';
                     result.json.error = error ? (error.message || 'Command failed') : '';
+                    hasOutput = true;
                 }
 
                 if (error && !forgiving) {
@@ -279,18 +287,24 @@ class ExecuteCommandPlus {
                 }
             } catch (err) {
                 if (outputMode === 'stdout') {
-                    result.json.output = '';
+                    result.json.output = '(command failed: ' + (err.message || 'unknown') + ')';
                 } else if (outputMode === 'ai') {
-                    result.json.output = 'ERR | 1 | ' + (err.message || 'Command execution failed');
+                    result.json.output = 'ERR | 1 | ' + (err.message || 'execution failed');
                 } else {
                     result.json.success = false;
                     result.json.error = err.message || 'Command execution failed';
                     result.json.exitCode = 1;
                 }
+                hasOutput = true;
                 
                 if (!forgiving) {
                     throw err;
                 }
+            }
+
+            // Always add reminder in AI mode
+            if (outputMode === 'ai' && hasOutput) {
+                result.json.output += ' | verify result';
             }
 
             returnItems.push(result);
