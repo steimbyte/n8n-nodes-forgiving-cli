@@ -84,7 +84,7 @@ class ExecuteCommandPlus {
             icon: 'fa:terminal',
             iconColor: 'blue',
             group: ['transform'],
-            version: 4,
+            version: 5,
             description: 'Execute shell command with forgiving error handling for AI agents',
             defaults: {
                 name: 'Execute Command Plus',
@@ -106,7 +106,7 @@ class ExecuteCommandPlus {
                     name: 'forgiving',
                     type: 'boolean',
                     default: true,
-                    description: 'When enabled: returns lean array format. When disabled: returns detailed object with success, error, exitCode, stdout, stderr',
+                    description: 'When ON: commands with errors still count as success (workflow continues). When OFF: errors stop the workflow.',
                 },
                 {
                     displayName: 'Encoding',
@@ -174,24 +174,6 @@ class ExecuteCommandPlus {
                     default: 'SIGTERM',
                     description: 'Signal to send when killing the process on timeout',
                 },
-                {
-                    displayName: 'Return',
-                    name: 'return',
-                    type: 'options',
-                    displayOptions: {
-                        show: {
-                            forgiving: [true]
-                        }
-                    },
-                    options: [
-                        { name: 'Full (lean)', value: 'full' },
-                        { name: 'Only stdout', value: 'stdout' },
-                        { name: 'Only stderr', value: 'stderr' },
-                        { name: 'Exit Code only', value: 'exitCode' },
-                    ],
-                    default: 'full',
-                    description: 'What to return in the output (lean format)',
-                },
             ],
         };
     }
@@ -213,7 +195,6 @@ class ExecuteCommandPlus {
         const shell = this.getNodeParameter('shell', 0) || '/bin/bash';
         const maxBuffer = this.getNodeParameter('maxBuffer', 0) || 1024;
         const killSignal = this.getNodeParameter('killSignal', 0) || 'SIGTERM';
-        const returnType = forgiving ? (this.getNodeParameter('return', 0) || 'full') : 'detailed';
 
         const options = {
             encoding,
@@ -226,26 +207,25 @@ class ExecuteCommandPlus {
         };
 
         for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
-            let result;
+            const result = {
+                json: {
+                    success: true,
+                    error: '',
+                    exitCode: 0,
+                    stderr: '',
+                    stdout: '',
+                },
+                pairedItem: { item: itemIndex },
+            };
 
             try {
                 if (!command || command.trim() === '') {
-                    if (forgiving) {
-                        result = {
-                            json: { output: ['error:Command is empty', 'exitCode:1'] },
-                            pairedItem: { item: itemIndex },
-                        };
-                    } else {
-                        result = {
-                            json: {
-                                success: false,
-                                error: 'Command is empty',
-                                exitCode: 1,
-                                stdout: '',
-                                stderr: ''
-                            },
-                            pairedItem: { item: itemIndex },
-                        };
+                    result.json.success = false;
+                    result.json.error = 'Command is empty';
+                    result.json.exitCode = 1;
+                    
+                    if (!forgiving) {
+                        throw new Error('Command is empty');
                     }
                     returnItems.push(result);
                     continue;
@@ -253,56 +233,25 @@ class ExecuteCommandPlus {
 
                 const { error, exitCode, stdout, stderr } = await execPromise(command, options);
                 
-                if (forgiving) {
-                    let output = [];
-                    if (returnType === 'full') {
-                        output = [
-                            `exitCode:${exitCode || 0}`,
-                            stdout ? `stdout:${stdout}` : 'stdout:',
-                            stderr ? `stderr:${stderr}` : 'stderr:',
-                            error ? `error:${error.message}` : 'error:'
-                        ];
-                    } else if (returnType === 'stdout') {
-                        output = stdout ? [stdout] : [];
-                    } else if (returnType === 'stderr') {
-                        output = stderr ? [stderr] : [];
-                    } else if (returnType === 'exitCode') {
-                        output = [String(exitCode || 0)];
-                    }
+                result.json.exitCode = exitCode || 0;
+                result.json.stdout = stdout || '';
+                result.json.stderr = stderr || '';
+
+                if (error) {
+                    result.json.success = false;
+                    result.json.error = error.message || 'Command failed';
                     
-                    result = {
-                        json: { output },
-                        pairedItem: { item: itemIndex },
-                    };
-                } else {
-                    result = {
-                        json: {
-                            success: !error,
-                            error: error ? (error.message || 'Command failed') : '',
-                            exitCode: exitCode || 0,
-                            stdout: stdout || '',
-                            stderr: stderr || ''
-                        },
-                        pairedItem: { item: itemIndex },
-                    };
+                    if (!forgiving) {
+                        throw error;
+                    }
                 }
-            } catch (error) {
-                if (forgiving) {
-                    result = {
-                        json: { output: [`error:${error.message || 'Command execution failed'}`, 'exitCode:1'] },
-                        pairedItem: { item: itemIndex },
-                    };
-                } else {
-                    result = {
-                        json: {
-                            success: false,
-                            error: error.message || 'Command execution failed',
-                            exitCode: 1,
-                            stdout: '',
-                            stderr: ''
-                        },
-                        pairedItem: { item: itemIndex },
-                    };
+            } catch (err) {
+                result.json.success = false;
+                result.json.error = err.message || 'Command execution failed';
+                result.json.exitCode = 1;
+                
+                if (!forgiving) {
+                    throw err;
                 }
             }
 
