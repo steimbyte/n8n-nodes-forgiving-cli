@@ -249,22 +249,19 @@ class ExecuteCommandPlus {
 				(item) => !item || !item.json || Object.keys(item.json).length === 0,
 			);
 
-		if (commandEmpty) {
+		if (commandEmpty && itemsEmpty) {
 			const outputMode = this.getNodeParameter("outputMode", 0);
-			const helpText =
-				'ERR | usage: fill the "Command" field with a shell command (e.g., evo l or evo state). Current input has ' +
-				(itemsEmpty ? "no data" : "empty data") +
-				".";
+			const msg = "No fields - item(s) exist, but they're empty";
 
 			if (outputMode === "ai") {
-				return [[{ json: { output: helpText }, pairedItem: { item: 0 } }]];
+				return [[{ json: { output: msg }, pairedItem: { item: 0 } }]];
 			} else if (outputMode === "stdout") {
-				return [[{ json: { output: helpText }, pairedItem: { item: 0 } }]];
+				return [[{ json: { output: msg }, pairedItem: { item: 0 } }]];
 			} else {
 				return [
 					[
 						{
-							json: { success: false, error: helpText },
+							json: { success: false, error: msg },
 							pairedItem: { item: 0 },
 						},
 					],
